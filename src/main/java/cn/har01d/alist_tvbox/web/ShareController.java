@@ -51,15 +51,25 @@ public class ShareController {
         shareService.deleteShares(ids);
     }
 
-    @PostMapping("/api/tacit0924")
-    public void getTacit0924() {
-        shareService.getTacit0924();
-    }
-
 //    @GetMapping("/api/resources")
 //    public Page<ShareInfo> listResources(Pageable pageable) {
 //        return shareService.listResources(pageable);
 //    }
+
+    @GetMapping("/quark/cookie/{id}")
+    public String getQuarkCookie(@PathVariable String id) {
+        return shareService.getQuarkCookie(id);
+    }
+
+    @GetMapping("/uc/cookie/{id}")
+    public String getUcCookie(@PathVariable String id) {
+        return shareService.getUcCookie(id);
+    }
+
+    @GetMapping("/115/cookie/{id}")
+    public String get115Cookie(@PathVariable String id) {
+        return shareService.get115Cookie(id);
+    }
 
     @GetMapping("/api/storages")
     public Object listStorages(Pageable pageable) {
