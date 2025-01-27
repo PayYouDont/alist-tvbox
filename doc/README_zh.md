@@ -18,6 +18,7 @@ AList代理，支持xiaoya版AList界面管理。
 - 多个AList站点
 - 多个阿里云盘账号
 - 挂载我的云盘
+- 支持夸克、UC、115网盘
 - 自动签到
 - 自动刷新阿里Token
 - 自定义TvBox配置
@@ -108,7 +109,7 @@ sudo bash -c "$(curl -fsSL https://d.har01d.cn/update_new.sh)"
 #### 环境变量
 ![环境变量](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_docker4.png)
 
-### 自动更新
+### 定时更新
 使用root用户创建corntab定时任务
 ```bash
 wget https://d.har01d.cn/update_xiaoya.sh -O /opt/update_xiaoya.sh
@@ -116,6 +117,29 @@ chmod a+x /opt/update_xiaoya.sh
 crontab -l | { cat; echo "0 2 * * * /opt/update_xiaoya.sh -u"; } | crontab -
 ```
 每天凌晨2点检查更新并重启应用。
+
+### 定时重启
+使用root用户创建corntab定时任务
+```bash
+wget https://d.har01d.cn/update_xiaoya.sh -O /opt/update_xiaoya.sh
+chmod a+x /opt/update_xiaoya.sh
+crontab -l | { cat; echo "0 2 * * * /opt/update_xiaoya.sh"; } | crontab -
+```
+每天凌晨2点重启应用。
+
+### 自动更新
+使用docker镜像watchtower实现自动更新。
+```bash
+docker run -d \
+    --name watchtower \
+    --restart always \
+    -e TZ=Asia/Shanghai \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    containrrr/watchtower \
+    --cleanup \
+    -s "0 0 3 * * *" \
+   xiaoya-tvbox
+```
 
 ### 防火墙
 需要开放管理端口4567和Nginx端口5344（host网络模式是5678）。
@@ -157,6 +181,13 @@ crontab -l | { cat; echo "0 2 * * * /opt/update_xiaoya.sh -u"; } | crontab -
 
 ![站点数据](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_site_data.png)
 
+### Emby站点
+在Emby页面添加Emby站点url和帐号。
+
+在TvBox选择第五个站源观看。
+
+![Emby站源](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_emby.jpg)
+
 ### 账号
 ![账号列表](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_account.png)
 
@@ -167,6 +198,19 @@ crontab -l | { cat; echo "0 2 * * * /opt/update_xiaoya.sh -u"; } | crontab -
 
 ![账号详情](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_account_detail.png)
 
+#### 网盘帐号
+网盘帐号在帐号页面添加。
+
+夸克网盘Cookie获取方式： https://alist.nn.ci/zh/guide/drivers/quark.html
+
+UC网盘Cookie获取方式： https://alist.nn.ci/zh/guide/drivers/uc.html
+
+115网盘Cookie获取方式： https://alist.nn.ci/zh/guide/drivers/115.html
+
+网盘分享在资源页面添加。
+
+115网盘开启本地代理后才能使用webdav播放。
+
 ### 订阅
 tvbox/my.json和juhe.json不能在TvBox直接使用，请使用订阅地址！
 
@@ -174,7 +218,7 @@ tvbox/my.json和juhe.json不能在TvBox直接使用，请使用订阅地址！
 
 ![添加订阅](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_sub_config.png)
 
-添加订阅支持多个URL，用逗号隔开。定制部分基本和TvBox的配置json一致，添加了站点白名单`sites-whitelist`和黑名单`sites-blacklist`。
+添加订阅支持多个URL，用逗号隔开。定制部分基本和TvBox的配置json一致，添加了站点白名单`sites-whitelist`和黑名单`blacklist`。
 
 定制属于高级功能，不懂TvBox配置格式不要轻易改动。
 
@@ -188,14 +232,108 @@ tvbox/my.json和juhe.json不能在TvBox直接使用，请使用订阅地址！
 
 ```json
 {
-    "sites-blacklist": ["说明1","说明2", "说明3","说明4","公告", "ext_live_protocol", "cc"],
+  "sites": [
+    {
+      "key": "玩偶哥哥",
+      "name": "👽玩偶哥哥┃4K弹幕",
+      "type": 3,
+      "api": "csp_WoGG",
+      "searchable": 1,
+      "quickSearch": 1,
+      "changeable": 0,
+      "ext": "http://127.0.0.1:9978/file/tvfan/token.txt+4k|auto|fhd$$$https://www.wogg.xyz/$$$弹",
+      "jar": "https://fs-im-kefu.7moor-fs1.com/29397395/4d2c3f00-7d4c-11e5-af15-41bf63ae4ea0/1708249660012/fan.txt;md5;87d5916b7bb5c8acacac5490e802828e"
+    }
+  ],
+  "lives": [
+    {
+      "name": "范明明•ipv6",
+      "type": 0,
+      "url": "https://github.moeyy.xyz/https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u",
+      "playerType": 1,
+      "epg": "http://epg.112114.xyz/?ch={name}&date={date}",
+      "logo": "https://epg.112114.xyz/logo/{name}.png"
+    }
+  ],
+  "blacklist": {
     "sites": [
-     
+      "说明1",
+      "说明2",
+      "说明3",
+      "说明4",
+      "公告",
+      "ext_live_protocol",
+      "cc",
+      "豆豆"
+    ],
+    "parses": [
+      "聚合"
     ]
+  }
 }
 ```
 
 ![订阅预览](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_sub_data.png)
+
+#### PG订阅
+在订阅页面，查看当前PG包版本和远程版本。
+
+如果本地版本与远程版本不同，点击同步文件按钮。
+
+自定义PG包，下载最新的PG包放在/etc/xiaoya/pg.zip，点击同步文件按钮。
+
+自定义PG配置，在文件页面新建文件/data/tokenm.json。
+填写自定义内容，比如：
+```json
+{
+  "pan115_delete_code" : "123456",
+   "tgsearch_api_url" : "ATV_ADDRESS/tgs"
+}
+```
+
+订阅页面登陆电报后，配置PG电报搜索URL。
+
+电报搜索API： `http://IP:4567/tgs`, `ATV_ADDRESS/tgs`
+
+自定义115分享资源：
+在/etc/xiaoya/pg/lib目录新建文件115share.txt。
+
+复制原文件内容，添加新的分享，点击同步文件按钮。
+
+其它分享类似，在压缩包/etc/xiaoya/pg.zip查看分享文件。
+
+#### 真心订阅
+在订阅页面，查看当前真心包版本和远程版本。
+
+如果本地版本与远程版本不同，点击同步文件按钮。
+
+自定义真心包，下载最新的真心包放在/etc/xiaoya/zx.zip，点击同步文件按钮。
+
+默认的TG搜索url是"http://IP:9999"
+
+自定义真心配置，在文件页面新建文件/data/zx.json。
+填写自定义内容，比如：
+```json
+{
+   "proxy" : "http://192.168.0.2:1072"
+}
+```
+
+订阅定制：
+```json
+{
+    "sites": [
+        {
+            "key": "TgYunPan|服务器",
+            "ext": {
+                "siteUrl": "http://192.168.0.2:9999",
+                "channelUsername": "kuakeyun,Quark_Movies,Quark_Share_Channel",
+                "commonConfig": "ATV_ADDRESS/zx/config?token=TOKEN"
+            }
+        }
+    ]
+}
+```
 
 #### 自定义多仓订阅
 在文件页面新建文件，目录：/www/tvbox/repo，名称：订阅id.json，比如：1.json。
@@ -204,7 +342,7 @@ tvbox/my.json和juhe.json不能在TvBox直接使用，请使用订阅地址！
 {
   "urls": [
     {
-      "url": "ATV_ADDRESS/sub/1",
+      "url": "ATV_ADDRESS/sub/TOKEN/1",
       "name": "内置小雅搜索源"
     },
     {
@@ -273,6 +411,29 @@ tvbox/my.json和juhe.json不能在TvBox直接使用，请使用订阅地址！
 添加频道作为一级分类：
 
 ![频道](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_bilibili_channel.png)
+
+### YouTube
+服务端代理，需要消耗服务器流量！
+
+订阅定制可以屏蔽：
+```json
+{
+  "blacklist": {
+    "sites": ["csp_Youtube"]
+  }
+}
+```
+
+自定义分类（搜索关键词或者频道），新建文件/data/youtube.txt
+```text
+电影
+动漫
+纪录片
+英语
+美食
+@yuge
+@laogao:老高
+```
 
 ### 配置
 ![配置页面](https://raw.githubusercontent.com/power721/alist-tvbox/master/doc/atv_config.png)
@@ -408,6 +569,19 @@ tvbox/my.json和juhe.json不能在TvBox直接使用，请使用订阅地址！
 1. 将保存的备份文件复制到/etc/xiaoya/database.zip
 2. 删除文件/etc/xiaoya/atv.mv.db和/etc/xiaoya/atv.trace.db
 3. 重启docker容器或者重新运行安装脚本
+
+### 静态文件
+将自己的文件test.json放在/www/tvbox/目录，可以通过 http://IP:4567/tvbox/test.json 访问。
+
+http://IP:4567/tvbox/ -> /www/tvbox/
+
+http://IP:4567/files/ -> /www/files/
+
+http://IP:4567/cat/ -> /www/cat/
+
+http://IP:4567/pg/ -> /www/pg/
+
+http://IP:4567/zx/ -> /www/zx/
 
 ### 其它
 不再生效的文件可以保留，以后删除数据库后可以恢复。
