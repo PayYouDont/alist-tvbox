@@ -1,25 +1,12 @@
 package cn.har01d.alist_tvbox.service;
 
 import cn.har01d.alist_tvbox.config.AppProperties;
+import cn.har01d.alist_tvbox.domain.DriverType;
 import cn.har01d.alist_tvbox.dto.Subtitle;
-import cn.har01d.alist_tvbox.entity.AListAlias;
-import cn.har01d.alist_tvbox.entity.AListAliasRepository;
-import cn.har01d.alist_tvbox.entity.Account;
-import cn.har01d.alist_tvbox.entity.AccountRepository;
-import cn.har01d.alist_tvbox.entity.Meta;
-import cn.har01d.alist_tvbox.entity.MetaRepository;
-import cn.har01d.alist_tvbox.entity.Movie;
-import cn.har01d.alist_tvbox.entity.ShareRepository;
-import cn.har01d.alist_tvbox.entity.Site;
-import cn.har01d.alist_tvbox.entity.Tmdb;
+import cn.har01d.alist_tvbox.entity.*;
 import cn.har01d.alist_tvbox.exception.BadRequestException;
 import cn.har01d.alist_tvbox.exception.NotFoundException;
-import cn.har01d.alist_tvbox.model.FileNameInfo;
-import cn.har01d.alist_tvbox.model.Filter;
-import cn.har01d.alist_tvbox.model.FilterValue;
-import cn.har01d.alist_tvbox.model.FsDetail;
-import cn.har01d.alist_tvbox.model.FsInfo;
-import cn.har01d.alist_tvbox.model.FsResponse;
+import cn.har01d.alist_tvbox.model.*;
 import cn.har01d.alist_tvbox.tvbox.Category;
 import cn.har01d.alist_tvbox.tvbox.CategoryList;
 import cn.har01d.alist_tvbox.tvbox.MovieDetail;
@@ -37,11 +24,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.core.env.Environment;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -55,27 +38,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static cn.har01d.alist_tvbox.util.Constants.ALIST_PIC;
-import static cn.har01d.alist_tvbox.util.Constants.FILE;
-import static cn.har01d.alist_tvbox.util.Constants.FOLDER;
-import static cn.har01d.alist_tvbox.util.Constants.PLAYLIST;
-import static cn.har01d.alist_tvbox.util.Constants.USER_AGENT;
+import static cn.har01d.alist_tvbox.util.Constants.*;
 
 @Slf4j
 @Service
@@ -89,6 +59,7 @@ public class TvBoxService {
     private final AListAliasRepository aliasRepository;
     private final ShareRepository shareRepository;
     private final MetaRepository metaRepository;
+    private final PanAccountRepository panAccountRepository;
 
     private final AListService aListService;
     private final IndexService indexService;
@@ -98,6 +69,7 @@ public class TvBoxService {
     private final TmdbService tmdbService;
     private final SubscriptionService subscriptionService;
     private final ConfigFileService configFileService;
+    private final ProxyService proxyService;
     private final ObjectMapper objectMapper;
     private final Environment environment;
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
@@ -134,6 +106,7 @@ public class TvBoxService {
             new FilterValue("无分", "no"),
             new FilterValue("低分", "low")
     );
+    private final PikPakAccountRepository pikPakAccountRepository;
     private List<Site> sites = new ArrayList<>();
 
     public TvBoxService(AccountRepository accountRepository,
@@ -148,8 +121,11 @@ public class TvBoxService {
                         TmdbService tmdbService,
                         SubscriptionService subscriptionService,
                         ConfigFileService configFileService,
+                        ProxyService proxyService,
                         ObjectMapper objectMapper,
-                        Environment environment) {
+                        Environment environment,
+                        PanAccountRepository panAccountRepository,
+                        PikPakAccountRepository pikPakAccountRepository) {
         this.accountRepository = accountRepository;
         this.aliasRepository = aliasRepository;
         this.shareRepository = shareRepository;
@@ -162,8 +138,11 @@ public class TvBoxService {
         this.tmdbService = tmdbService;
         this.subscriptionService = subscriptionService;
         this.configFileService = configFileService;
+        this.proxyService = proxyService;
         this.objectMapper = objectMapper;
         this.environment = environment;
+        this.panAccountRepository = panAccountRepository;
+        this.pikPakAccountRepository = pikPakAccountRepository;
     }
 
     private Site getXiaoyaSite() {
@@ -175,11 +154,27 @@ public class TvBoxService {
         return null;
     }
 
+    private Site getXiaoyaOrFirstSite() {
+        List<Site> list = siteService.list();
+        Site result = null;
+        for (Site site : list) {
+            if (site.isSearchable() && !site.isDisabled()) {
+                if (site.isXiaoya()) {
+                    return site;
+                }
+                if (result == null) {
+                    result = site;
+                }
+            }
+        }
+        return result;
+    }
+
     public CategoryList getCategoryList(Integer type) {
         CategoryList result = new CategoryList();
 
         if (type == 0) {
-            Site site = getXiaoyaSite();
+            Site site = getXiaoyaOrFirstSite();
             if (site != null) {
                 setTypes(result, site);
             }
@@ -223,7 +218,7 @@ public class TvBoxService {
         if (appProperties.isMix()) {
             category = new Category();
             category.setType_id(site.getId() + "$/$1");
-            category.setType_name("网盘");
+            category.setType_name("AList");
             category.setType_flag(1);
             result.getCategories().add(category);
             result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
@@ -327,8 +322,7 @@ public class TvBoxService {
             result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
         }
 
-        int pp = shareRepository.countByType(1);
-        if (shareRepository.count() > pp) {
+        if (shareRepository.countByType(0) > 0) {
             Category category = new Category();
             category.setType_id("1$/\uD83C\uDE34我的阿里分享$1");
             category.setType_name("阿里分享");
@@ -336,29 +330,83 @@ public class TvBoxService {
             result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
         }
 
-        if (shareRepository.countByType(2) > 0) {
+        panAccountRepository.findByTypeAndMasterTrue(DriverType.QUARK).ifPresent(account -> {
             Category category = new Category();
-            category.setType_id("1$/\uD83C\uDF1E我的夸克网盘$1");
+            category.setType_id("1$" + getMountPath(account) + "$1");
             category.setType_name("夸克网盘");
             result.getCategories().add(category);
             result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
-        }
+        });
 
-        if (shareRepository.countByType(3) > 0) {
+        if (shareRepository.countByType(5) > 0) {
             Category category = new Category();
-            category.setType_id("1$/115网盘$1");
-            category.setType_name("115网盘");
+            category.setType_id("1$/我的夸克分享$1");
+            category.setType_name("夸克分享");
             result.getCategories().add(category);
             result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
         }
 
-        if (pp > 0) {
+        panAccountRepository.findByTypeAndMasterTrue(DriverType.UC).ifPresent(account -> {
             Category category = new Category();
-            category.setType_id("1$/\uD83D\uDD78️我的PikPak分享$1");
+            category.setType_id("1$" + getMountPath(account) + "$1");
+            category.setType_name("UC网盘");
+            result.getCategories().add(category);
+            result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
+        });
+
+        if (shareRepository.countByType(7) > 0) {
+            Category category = new Category();
+            category.setType_id("1$/我的UC分享$1");
+            category.setType_name("UC分享");
+            result.getCategories().add(category);
+            result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
+        }
+
+        panAccountRepository.findByTypeAndMasterTrue(DriverType.PAN115).ifPresent(account -> {
+            Category category = new Category();
+            category.setType_id("1$" + getMountPath(account) + "$1");
+            category.setType_name("115网盘");
+            result.getCategories().add(category);
+            result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
+        });
+
+        if (shareRepository.countByType(8) > 0) {
+            Category category = new Category();
+            category.setType_id("1$/我的115分享$1");
+            category.setType_name("115分享");
+            result.getCategories().add(category);
+            result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
+        }
+
+        if (pikPakAccountRepository.count() > 0) {
+            Category category = new Category();
+            category.setType_id("1$/\uD83C\uDD7F️我的PikPak$1");
             category.setType_name("PikPak");
             result.getCategories().add(category);
             result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
         }
+
+        if (shareRepository.countByType(1) > 0) {
+            Category category = new Category();
+            category.setType_id("1$/\uD83D\uDD78️我的PikPak分享$1");
+            category.setType_name("PikPak分享");
+            result.getCategories().add(category);
+            result.getFilters().put(category.getType_id(), List.of(new Filter("sort", "排序", filters)));
+        }
+    }
+
+    private Object getMountPath(PanAccount account) {
+        if (account.getName().startsWith("/")) {
+            return account.getName();
+        }
+        if (account.getType() == DriverType.QUARK) {
+            return "/\uD83C\uDF1E我的夸克网盘";
+        } else if (account.getType() == DriverType.UC) {
+            return "/\uD83C\uDF1E我的UC网盘";
+        } else if (account.getType() == DriverType.PAN115) {
+            return "/115网盘";
+        }
+        return "/网盘";
     }
 
     public MovieList recommend(String ac, int pg) {
@@ -821,7 +869,7 @@ public class TvBoxService {
             movieDetail.setVod_time(fsInfo.getModified());
             movieDetail.setSize(fsInfo.getSize());
             if (fsInfo.getType() == 1) {
-                if ("open".equals(client)) {
+                if ("open".equals(client) || "node".equals(client)) {
                     movieDetail.setVod_pic("");
                     if ("AliyundriveOpen".equals(fsResponse.getProvider())) {
                         movieDetail.setVod_pic("https://pic.rmb.bdstatic.com/bjh/6a2278365c10139b5b03229c2ecfeea4.jpeg");
@@ -1096,41 +1144,41 @@ public class TvBoxService {
 
         List<Subtitle> subtitles = new ArrayList<>();
 
-        if ("com.fongmi.android.tv".equals(client)) {
-            try {
-                var preview = aListService.preview(site, fullPath);
-                log.debug("preview: {} {}", fullPath, preview);
-                if (preview != null) {
-                    Collections.reverse(preview.getPlayInfo().getVideos());
-                    List<String> urls = new ArrayList<>();
-                    for (var item : preview.getPlayInfo().getVideos()) {
-                        if (!"finished".equals(item.getStatus())) {
-                            continue;
-                        }
-                        urls.add(item.getId());
-                        urls.add(item.getUrl());
-                    }
-                    if (urls.size() > 1) {
-                        url = urls.get(1);
-                        result.put("url", urls);
-                    }
-
-                    if (preview.getPlayInfo().getSubtitles() != null) {
-                        for (var item : preview.getPlayInfo().getSubtitles()) {
-                            if (!"finished".equals(item.getStatus())) {
-                                continue;
-                            }
-                            Subtitle subtitle = new Subtitle();
-                            subtitle.setUrl(item.getUrl());
-                            subtitle.setLang(item.getLanguage());
-                            subtitles.add(subtitle);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("preview failed", e);
-            }
-        }
+//        if ("com.fongmi.android.tv".equals(client)) {
+//            try {
+//                var preview = aListService.preview(site, fullPath);
+//                log.debug("preview: {} {}", fullPath, preview);
+//                if (preview != null) {
+//                    Collections.reverse(preview.getPlayInfo().getVideos());
+//                    List<String> urls = new ArrayList<>();
+//                    for (var item : preview.getPlayInfo().getVideos()) {
+//                        if (!"finished".equals(item.getStatus())) {
+//                            continue;
+//                        }
+//                        urls.add(item.getId());
+//                        urls.add(item.getUrl());
+//                    }
+//                    if (urls.size() > 1) {
+//                        url = urls.get(1);
+//                        result.put("url", urls);
+//                    }
+//
+//                    if (preview.getPlayInfo().getSubtitles() != null) {
+//                        for (var item : preview.getPlayInfo().getSubtitles()) {
+//                            if (!"finished".equals(item.getStatus())) {
+//                                continue;
+//                            }
+//                            Subtitle subtitle = new Subtitle();
+//                            subtitle.setUrl(item.getUrl());
+//                            subtitle.setLang(item.getLanguage());
+//                            subtitles.add(subtitle);
+//                        }
+//                    }
+//                }
+//            } catch (Exception e) {
+//                log.warn("preview failed", e);
+//            }
+//        }
 
         if (url == null) {
             FsDetail fsDetail = aListService.getFile(site, path);
@@ -1138,8 +1186,10 @@ public class TvBoxService {
                 throw new BadRequestException("找不到文件 " + path);
             }
 
-            if (fsDetail.getProvider().contains("Aliyundrive")
-                    || ("open".equals(client) && fsDetail.getProvider().contains("115"))) {
+            if ("com.fongmi.android.tv".equals(client)) {
+                url = fixHttp(fsDetail.getRawUrl());
+            } else if ((fsDetail.getProvider().contains("Aliyundrive") && !fsDetail.getRawUrl().contains("115cdn.net"))
+                    || (("open".equals(client) || "node".equals(client)) && fsDetail.getProvider().contains("115"))) {
                 url = buildProxyUrl(site, path, fsDetail.getSign());
                 log.info("play url: {}", url);
             } else {
@@ -1149,11 +1199,21 @@ public class TvBoxService {
             result.put("url", url);
         }
 
-        if (url.contains("ali")) {
+        if (url.contains("xunlei.com")) {
+            result.put("header", "{\"User-Agent\":\"Dalvik/2.1.0 (Linux; U; Android 12; M2004J7AC Build/SP1A.210812.016)\"}");
+        } else if (url.contains("115cdn.net")) {
+            var account = panAccountRepository.findByTypeAndMasterTrue(DriverType.PAN115).orElseThrow();
+            if (account.isUseProxy()) {
+                url = proxyService.generateProxyUrl(url);
+                result.put("url", url);
+            } else {
+                String cookie = account.getCookie();
+                // 115会把UA生成签名校验
+                result.put("header", "{\"Cookie\":\"" + cookie + "\",\"User-Agent\":\"" + USER_AGENT + "\",\"Referer\":\"https://115.com/\"}");
+            }
+        } else if (url.contains("ali")) {
             result.put("format", "application/octet-stream");
             result.put("header", "{\"User-Agent\":\"" + USER_AGENT + "\",\"Referer\":\"https://www.aliyundrive.com/\"}");
-        } else if (url.contains("115.com")) {
-            result.put("header", "{\"User-Agent\":\"" + USER_AGENT + "\",\"Referer\":\"https://115.com/\"}");
         }
 
         if (!getSub) {
@@ -1357,7 +1417,7 @@ public class TvBoxService {
             movieDetail.setVod_pic(getCover(fsDetail.getThumb(), fsDetail.getType()));
             movieDetail.setVod_play_from(site.getName());
             if ("detail".equals(ac)) {
-                String sign = subscriptionService.getToken().isEmpty() ? "" : aListService.getFile(site, path).getSign();
+                String sign = subscriptionService.getTokens().isEmpty() ? "" : aListService.getFile(site, path).getSign();
                 movieDetail.setVod_play_url(buildProxyUrl(site, path, sign));
             } else {
                 movieDetail.setVod_play_url(fsDetail.getName() + "$" + buildPlayUrl(site, path));
@@ -1438,7 +1498,7 @@ public class TvBoxService {
                 for (String name : fileNames) {
                     String filepath = newPath + "/" + folder + "/" + name;
                     if ("detail".equals(ac)) {
-                        String sign = subscriptionService.getToken().isEmpty() ? "" : aListService.getFile(site, filepath).getSign();
+                        String sign = subscriptionService.getTokens().isEmpty() ? "" : aListService.getFile(site, filepath).getSign();
                         String url = buildProxyUrl(site, filepath, sign);
                         urls.add(fixName(name, prefix, suffix) + "$" + url);
                     } else {
@@ -1467,7 +1527,7 @@ public class TvBoxService {
             for (String name : fileNames) {
                 String filepath = newPath + "/" + name;
                 if ("detail".equals(ac)) {
-                    String sign = subscriptionService.getToken().isEmpty() ? "" : aListService.getFile(site, filepath).getSign();
+                    String sign = subscriptionService.getTokens().isEmpty() ? "" : aListService.getFile(site, filepath).getSign();
                     String url = buildProxyUrl(site, filepath, sign);
                     list.add(fixName(name, prefix, suffix) + "$" + url);
                 } else {
@@ -1838,8 +1898,8 @@ public class TvBoxService {
                     .replaceQuery("")
                     .build()
                     .toUriString();
-            url = url.replace("http://localhost:5244/", proxy);
-            url = url.replace("http://localhost/", proxy);
+            int index = url.indexOf('/', 16);
+            url = proxy + url.substring(index + 1);
             log.debug("fixHttp: {}", url);
         }
 
@@ -1856,6 +1916,9 @@ public class TvBoxService {
                     .toUri()
                     .toASCIIString();
         } else {
+            if (StringUtils.isNotBlank(site.getFolder())) {
+                path = fixPath(site.getFolder() + "/" + path);
+            }
             return UriComponentsBuilder.fromHttpUrl(site.getUrl())
                     .replacePath("/d" + path)
                     .replaceQuery("sign=" + sign)

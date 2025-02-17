@@ -46,6 +46,10 @@ public class TextUtils {
         return text.codePoints().allMatch(TextUtils::isAlphabetic);
     }
 
+    public static boolean isNumber(String text) {
+        return NUMBER1.matcher(text).matches();
+    }
+
     public static String fixName(String name) {
         int index = name.lastIndexOf('/');
         String newName = name.trim();
@@ -402,6 +406,7 @@ public class TextUtils {
                 .replace("_", " ")
                 .replace("⭐", " ")
                 .replace("|", " ")
+                .replace("丨", "")
                 .replace("+", " ")
                 .replace("Ⅰ", "第一季")
                 .replace("Ⅱ", "第二季")
